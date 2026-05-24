@@ -1,0 +1,416 @@
+input_select:
+  # Current awning automation mode
+  awning_automation_mode:
+    name: "Markisemodus"
+    options:
+      # Auto: Normal operation according to the weather forecast and the sun position
+      - "Auto"
+      # Aus bis Morgen: Manual override until the next midnight, then switch back to Auto
+      - "Aus bis Morgen"
+      # Aus: Automation is off, manual control only.
+      - "Aus"
+
+template:
+  # A binary sensor representing the end state of the awning when the automation is active.
+  - binary_sensor:
+      - name: "Markise Endzustand"
+        unique_id: "awning_auto_state"
+        # This seems to be the only way to affect the generated entity_id
+        default_entity_id: "binary_sensor.awning_auto_state"
+        device_class: light
+        state: >
+          {{
+            state_attr('sun.sun', 'azimuth') > 163 and 
+            state_attr('sun.sun', 'elevation') > 28 and
+            is_state('calendar.markise', 'off')
+          }}
+  # Trigger-based template sensor to get MeteoSwiss forecast data
+  # to be used to control the awning
+  - trigger:
+      # The forecast is updated every hour;
+      # 10:00 seems like a good balance between not too early for a better forecast
+      # and not too late to still be able to check the blocks before diving into the day.
+      - platform: time
+        at: "10:00:00"
+      # For debugging
+      - platform: event
+        event_type: "update_awning_forecast"
+    action:
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.weather_at_8050
+        data:
+          type: hourly
+        response_variable: hourly_data
+    sensor:
+      - name: "Awning forecast data"
+        unique_id: awning_forecast_data
+        # This seems to be the only way to affect the generated entity_id
+        default_entity_id: "sensor.awning_forecast_data"
+        # The state just shows when it was last updated
+        state: "{{ now().isoformat() }}"
+        attributes:
+          # Forecast until the next sunset with datetimes being of a datetime format, not string
+          hourly: >
+            {# sun.sun datetime attributes are actually strings #}
+            {% set rise = state_attr('sun.sun', 'next_rising') | as_datetime | as_local %}
+            {% set set = state_attr('sun.sun', 'next_setting') | as_datetime | as_local %}
+            
+            {# next_rising is tomorrow if this is called after a sunrise --
+               move the start bound to 1h before now for this case #}
+            {% set start_bound = now() - timedelta(hours=1) if rise > set else rise + timedelta(hours=1) %}
+            {% set end_bound = set - timedelta(hours=1) %}
+
+            {# This is some HA/Jinja2 magic; apparently plain lists and .append() don't work in HA #}
+            {% set ns = namespace(filtered=[]) %}
+            {% for entry in hourly_data['weather.weather_at_8050'].forecast %}
+              {# Convert the string datetime in the forecast to the real datytime type #}
+              {% set entry_dt = entry.datetime | as_datetime %}
+              {# Introduce an end datetime to somplify further processing #}
+              {% set entry_end_dt = entry_dt + timedelta(hours=1) %}
+              
+              {% if start_bound <= entry_dt <= end_bound %}
+                {# Convert the forecast date to the local timezone for readability #}
+                {% set new_entry = dict(entry, datetime=(entry_dt | as_local).isoformat(), datetime_end=(entry_end_dt | as_local).isoformat()) %}
+                {% set ns.filtered = ns.filtered + [new_entry] %}
+              {% endif %}
+            {% endfor %}
+
+            {{ ns.filtered }}
+
+
+script:
+  # A script to join adjacent forecast blocks to not have redundant calendar events.
+  join_adjacent_forecast_blocks:
+    alias: 'Join adjacent forecast blocks'
+    description: ''
+    mode: parallel
+    fields:
+      input_hours:
+        description: The filtered list of hours from a MeteoSwiss hourly forecast
+    sequence:
+    - variables:
+        aggregated: >
+          {% set ns = namespace(events=[], current=none) %}
+          {% for hour in input_hours %}
+            {% set dt_start = hour.datetime %}
+            {% set dt_end = hour.datetime_end%}
+            {% if ns.current is none %}
+              {# Handle the first entry #}
+              {% set ns.current = {'start': dt_start, 'end': dt_end} %}
+            {% else %}
+              {% if dt_start == ns.current.end %}
+                {% set ns.current = dict(ns.current, end=dt_end) %}
+              {% else %}
+                {% set ns.events = ns.events + [ns.current] %}
+                {% set ns.current = {'start': dt_start, 'end': dt_end} %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          
+          {% if ns.current is not none %}
+            {% set ns.events = ns.events + [ns.current] %}
+          {% endif %}
+          
+          {# HA magic: scripts must return key-values, not just lists #}
+          {{ dict(events=ns.events) }}
+    - stop: Done
+      response_variable: aggregated
+
+
+automation:
+  - alias: Awning Manual --> Auto
+    description: Manual overrides work for a day only. This automation switches it to
+      Auto every midnight.
+    # TODO: replace with a meaningful ID when switching to a new HA instance
+    id: '1774900581887'
+    triggers:
+    - trigger: time
+      at: 00:00:00
+    conditions:
+    - condition: state
+      entity_id: input_select.awning_automation_mode
+      state:
+      - Aus bis Morgen
+    actions:
+    - action: input_select.select_option
+      metadata: {}
+      data:
+        option: Auto
+      target:
+        entity_id: input_select.awning_automation_mode
+    mode: single
+
+  - alias: Override Auto until tomorrow
+    description: In case the awning was moved externally -- override the automation
+      until tomorrow.
+    # TODO: replace with a meaningful ID when switching to a new HA instance
+    id: '1774901348871'
+    triggers:
+    # Do not react to position transitions (`position` attribute changes);
+    # additionally Gemini states, context is usually only attached to the first event in a chain.
+    # This corresponds to my previous experience with `position` attribute as a trigger
+    # where `parent_id`/`user_id` values were inconsistent for different ways of action on the awning.
+    - trigger: state
+      entity_id:
+        - cover.sonoff_10018b1f1b
+      to:
+      - "opening"
+      - "closing"
+    conditions:
+    - condition: state
+      entity_id: input_select.awning_automation_mode
+      state:
+      - Auto
+    - alias: Triggered not by HA automation
+      condition: template
+      # Here is how different triggers look like:
+      # - HA automation:
+      #   parent_id: 01KQPSZ1SPH99W32NY87TH0VKV
+      #   user_id: null
+      # - Physical button:
+      #   parent_id: null
+      #   user_id: null
+      # - HA widget:
+      #   parent_id: null
+      #   user_id: f596c184776c4b2db0f23d1727db21e2
+      # - Google Home: 
+      #   parent_id: null
+      #   user_id: null
+      value_template: >
+        {# React to anything but HA automations #}
+        {{ trigger.to_state.context.parent_id == none }}
+    actions:
+    - action: input_select.select_option
+      metadata: {}
+      target:
+        entity_id: input_select.awning_automation_mode
+      data:
+        option: Aus bis Morgen
+    mode: single
+
+  - alias: Auto open and close    
+    description: 'Automatically extend and retract the awning based on the weather forecast and the sun position.'
+    # TODO: replace with a meaningful ID when switching to a new HA instance
+    id: '1775244947613'
+    triggers:
+    - trigger: state
+      entity_id:
+      - binary_sensor.awning_auto_state
+    - trigger: state
+      entity_id:
+      - input_select.awning_automation_mode
+      to:
+      - Auto
+    conditions:
+    - condition: state
+      entity_id: input_select.awning_automation_mode
+      state:
+      - Auto
+    actions:
+    - choose:
+      - conditions:
+        - condition: state
+          entity_id: binary_sensor.awning_auto_state
+          state:
+          - 'on'
+        sequence:
+        - device_id: 1eaf72ce3939321d1131ec0ca53aec03
+          domain: cover
+          entity_id: 1b02ad77953097a224df1145de5fa08f
+          type: set_position
+          position: 65
+      - conditions:
+        - condition: state
+          entity_id: binary_sensor.awning_auto_state
+          state:
+          - 'off'
+        sequence:
+        - device_id: 1eaf72ce3939321d1131ec0ca53aec03
+          domain: cover
+          entity_id: 1b02ad77953097a224df1145de5fa08f
+          type: close
+    mode: single
+
+  - alias: 'Block awning for high winds'
+    description: Creates calendar events for the hours with high wind gusts in the forecast to block the awning from being extended.
+    id: 'block_awning_for_high_winds'
+    triggers:
+    - entity_id: sensor.awning_forecast_data
+      trigger: state
+      attribute: hourly
+    conditions:
+    - condition: template
+      value_template: '{{ state_attr(''sensor.awning_forecast_data'', ''hourly'') |
+        length > 0 }}'
+    actions:
+    - variables:
+        # TODO: tune the threshold once testing is complete
+        max_allowed_wind_gusts: 35
+    - variables:
+        windy_hours: >
+          {{ state_attr('sensor.awning_forecast_data', 'hourly') 
+            | selectattr('wind_gust_speed', 'gt', max_allowed_wind_gusts) | list }}
+    - action: script.join_adjacent_forecast_blocks
+      data:
+        input_hours: '{{ windy_hours }}'
+      response_variable: aggregated
+    - repeat:
+        for_each: '{{ aggregated.events }}'
+        sequence:
+          - action: google.create_event
+            target:
+              entity_id: calendar.markise
+            data:
+              summary: "HA: High winds"
+              description: "Forecasted wind gusts > {{ max_allowed_wind_gusts }} km/h"
+              start_date_time: "{{ repeat.item.start }}"
+              end_date_time: "{{ repeat.item.end }}"
+
+  - alias: 'Block awning for precipitation'
+    description: Creates calendar events for the hours with precipitation in the forecast to block the awning from being extended.
+    id: 'block_awning_for_precipitation'
+    triggers:
+    - entity_id: sensor.awning_forecast_data
+      trigger: state
+      attribute: hourly
+    conditions:
+    - condition: template
+      value_template: '{{ state_attr(''sensor.awning_forecast_data'', ''hourly'') |
+        length > 0 }}'
+    actions:
+    - variables:
+        max_allowed_precipitation: 0.0
+    - variables:
+        windy_hours: >
+          {{ state_attr('sensor.awning_forecast_data', 'hourly') 
+            | selectattr('precipitation', 'gt', max_allowed_precipitation) | list }}
+    - action: script.join_adjacent_forecast_blocks
+      data:
+        input_hours: '{{ windy_hours }}'
+      response_variable: aggregated
+    - repeat:
+        for_each: '{{ aggregated.events }}'
+        sequence:
+          - action: google.create_event
+            target:
+              entity_id: calendar.markise
+            data:
+              summary: "HA: Precipitation"
+              description: "Forecasted precipitation > {{ max_allowed_precipitation }} mm/h"
+              start_date_time: "{{ repeat.item.start }}"
+              end_date_time: "{{ repeat.item.end }}"
+
+  - alias: 'Block awning for cloudy weather'
+    description: Creates calendar events for the hours with cloudy weather in the forecast to block the awning from being extended.
+    id: 'block_awning_for_cloudy_weather'
+    triggers:
+    - entity_id: sensor.awning_forecast_data
+      trigger: state
+      attribute: hourly
+    conditions:
+    - condition: template
+      value_template: '{{ state_attr(''sensor.awning_forecast_data'', ''hourly'') |
+        length > 0 }}'
+    actions:
+    - variables:
+        min_allowed_sunshine: 10
+    - variables:
+        windy_hours: >
+          {{ state_attr('sensor.awning_forecast_data', 'hourly') 
+            | selectattr('sunshine', 'lt', min_allowed_sunshine) | list }}
+    - action: script.join_adjacent_forecast_blocks
+      data:
+        input_hours: '{{ windy_hours }}'
+      response_variable: aggregated
+    - repeat:
+        for_each: '{{ aggregated.events }}'
+        sequence:
+          - action: google.create_event
+            target:
+              entity_id: calendar.markise
+            data:
+              summary: "HA: Cloudy weather"
+              description: "Forecasted sunshine < {{ min_allowed_sunshine }} min/h"
+              start_date_time: "{{ repeat.item.start }}"
+              end_date_time: "{{ repeat.item.end }}"
+
+  - alias: 'Block awning for low temperature'
+    description: Creates calendar events for the hours with low temperature in the forecast to block the awning from being extended.
+    id: 'block_awning_for_low_temperature'
+    triggers:
+    - entity_id: sensor.awning_forecast_data
+      trigger: state
+      attribute: hourly
+    conditions:
+    - condition: template
+      value_template: '{{ state_attr(''sensor.awning_forecast_data'', ''hourly'') |
+        length > 0 }}'
+    actions:
+    - variables:
+        min_allowed_templow: 10
+    - variables:
+        windy_hours: >
+          {{ state_attr('sensor.awning_forecast_data', 'hourly') 
+            | selectattr('templow', 'lt', min_allowed_templow) | list }}
+    - action: script.join_adjacent_forecast_blocks
+      data:
+        input_hours: '{{ windy_hours }}'
+      response_variable: aggregated
+    - repeat:
+        for_each: '{{ aggregated.events }}'
+        sequence:
+          - action: google.create_event
+            target:
+              entity_id: calendar.markise
+            data:
+              summary: "HA: Low temperature"
+              description: "Forecasted temperature < {{ min_allowed_templow }} °C"
+              start_date_time: "{{ repeat.item.start }}"
+              end_date_time: "{{ repeat.item.end }}"
+
+  # This is a safety net automation to catch any errors in the awning blocking logic
+  # and switch to manual override in case of an error to prevent the awning from being
+  # extended when it shouldn't be.
+  # This is quite ugly but there seems to be no other option.
+  # 
+  # It requires the following in the configuration.yaml to work:
+  # system_log:
+  #   fire_event: true
+  - alias: "Watch awning automations for errors"
+    id: awning_automation_crash_handler
+    mode: parallel
+    trigger:
+      - platform: event
+        event_type: system_log_event
+        event_data:
+          level: ERROR
+    variables:
+      watched_integration_ids:
+        - "automation.block_awning_for_low_temperature"
+        - "automation.block_awning_for_cloudy_weather"
+        - "automation.block_awning_for_precipitation"
+        - "automation.block_awning_for_high_winds"
+        - "sensor.awning_forecast_data"
+      error_message_ids: >
+        {% set ids_regex = watched_integration_ids | join('|') %}
+        {{ trigger.event.data.message | regex_findall(ids_regex) }}
+    condition:
+      - alias: "Check if this is an error from one of the awning blocking automations"
+        condition: template
+        value_template: >
+          {{ error_message_ids | length > 0 }}
+    actions:
+      - action: notify.persistent_notification
+        data:
+          title: "🛑 Awning blocking logic error"
+          message: >
+            Error in {{ error_message_ids }}.  
+            
+            Awning automation is paused until tomorrow.
+      - action: input_select.select_option
+        metadata: {}
+        target:
+          entity_id: input_select.awning_automation_mode
+        data:
+          option: Aus bis Morgen
