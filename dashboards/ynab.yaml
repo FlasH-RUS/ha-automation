@@ -1,0 +1,174 @@
+# This dashboard relies on [yacs-ha](https://github.com/DeLuca21/ynab-ha) custom HA integration
+# and the following custom UI elements:
+# - https://github.com/custom-cards/decluttering-card
+# - https://github.com/kattcrazy/Stacked-Bar-Card
+decluttering_templates:
+  monthly_category:
+    card:
+      type: horizontal-stack
+      cards:
+        - type: tile
+          entity: sensor.[[ynab_category_sensor_name]]
+          show_entity_picture: false
+          vertical: false
+        - type: custom:stacked-bar-card
+          show_legend: false
+          show_state: none
+          show_name: none
+          sort: custom
+          entities:
+            - entity: >-
+                {{ [0, -state_attr('sensor.[[ynab_category_sensor_name]]',
+                'activity')] | max }}
+              name: Spent
+              color: '#346011'
+              order: 1
+            - entity: >-
+                {{ state_attr('sensor.[[ynab_category_sensor_name]]', 'balance')
+                }}
+              name: Remaining
+              color: '#77ba21'
+              order: 2
+  eventual_category:
+    card:
+      type: horizontal-stack
+      cards:
+        - type: tile
+          entity: sensor.[[ynab_category_sensor_name]]
+          show_entity_picture: false
+          vertical: false
+        - type: custom:stacked-bar-card
+          show_legend: false
+          show_state: none
+          show_name: none
+          sort: custom
+          entities:
+            - entity: >-
+                {{ state_attr('sensor.[[ynab_category_sensor_name]]', 'balance')
+                }}
+              name: Balance
+              color: '#77ba21'
+              order: 1
+            - entity: >-
+                {{ state_attr('sensor.[[ynab_category_sensor_name]]',
+                'goal_overall_left') }}
+              name: Until goal
+              color: '#3c3e53'
+              order: 2
+  eventual_with_spending_category:
+    card:
+      type: horizontal-stack
+      cards:
+        - type: tile
+          entity: sensor.[[ynab_category_sensor_name]]
+          show_entity_picture: false
+          vertical: false
+        - type: custom:stacked-bar-card
+          show_legend: false
+          show_state: none
+          show_name: none
+          sort: custom
+          entities:
+            - entity: >-
+                {{ [0, -state_attr('sensor.[[ynab_category_sensor_name]]',
+                'activity')] | max }}
+              name: Spent
+              color: '#346011'
+              order: 1
+            - entity: >-
+                {{ state_attr('sensor.[[ynab_category_sensor_name]]', 'balance')
+                }}
+              name: Balance
+              color: '#77ba21'
+              order: 2
+            - entity: >-
+                {% set goal_left =
+                state_attr('sensor.[[ynab_category_sensor_name]]',
+                'goal_overall_left') %} {% set spent = [0,
+                -state_attr('sensor.[[ynab_category_sensor_name]]', 'activity')]
+                | max %}
+
+                {{ [0, goal_left - spent] | max }}
+              name: Until goal
+              color: '#3c3e53'
+              order: 3
+views:
+  - type: sections
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Needs
+            heading_style: title
+          - type: custom:decluttering-card
+            template: monthly_category
+            variables:
+              - ynab_category_sensor_name: groceries_ynab_family_budget
+          - type: custom:decluttering-card
+            template: monthly_category
+            variables:
+              - ynab_category_sensor_name: medicines_ynab_family_budget
+          - type: custom:decluttering-card
+            template: monthly_category
+            variables:
+              - ynab_category_sensor_name: personal_care_ynab_family_budget
+      - type: grid
+        cards:
+          - type: heading
+            heading: Wants
+            heading_style: title
+          - type: custom:decluttering-card
+            template: monthly_category
+            variables:
+              - ynab_category_sensor_name: food_drinks_ynab_family_budget
+          - type: custom:decluttering-card
+            template: monthly_category
+            variables:
+              - ynab_category_sensor_name: entertainment_ynab_family_budget
+          - type: custom:decluttering-card
+            template: monthly_category
+            variables:
+              - ynab_category_sensor_name: shopping_ynab_family_budget
+          - type: custom:decluttering-card
+            template: monthly_category
+            variables:
+              - ynab_category_sensor_name: clothes_ynab_family_budget
+      - type: grid
+        cards:
+          - type: heading
+            heading: Resets
+            heading_style: title
+          - type: custom:decluttering-card
+            template: eventual_with_spending_category
+            variables:
+              - ynab_category_sensor_name: sport_holidays_ynab_family_budget
+          - type: custom:decluttering-card
+            template: eventual_with_spending_category
+            variables:
+              - ynab_category_sensor_name: spring_holidays_ynab_family_budget
+          - type: custom:decluttering-card
+            template: eventual_with_spending_category
+            variables:
+              - ynab_category_sensor_name: summer_holidays_ynab_family_budget
+          - type: custom:decluttering-card
+            template: eventual_with_spending_category
+            variables:
+              - ynab_category_sensor_name: autumn_holidays_ynab_family_budget
+          - type: custom:decluttering-card
+            template: eventual_with_spending_category
+            variables:
+              - ynab_category_sensor_name: winter_holidays_ynab_family_budget
+        column_span: 1
+      - type: grid
+        cards:
+          - type: heading
+            heading: Emergencies2
+            heading_style: title
+          - type: custom:decluttering-card
+            template: eventual_category
+            variables:
+              - ynab_category_sensor_name: doctors_ynab_family_budget
+          - type: custom:decluttering-card
+            template: eventual_category
+            variables:
+              - ynab_category_sensor_name: n_months_fund_ynab_family_budget

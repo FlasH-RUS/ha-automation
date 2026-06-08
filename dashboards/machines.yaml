@@ -1,0 +1,59 @@
+# This dashboard relies on [Glances](https://www.home-assistant.io/integrations/glances/) HA integration
+views:
+  - type: sections
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: KellerServer
+            heading_style: title
+          - graph: line
+            type: sensor
+            entity: sensor.kellerserver_cpu_load
+            detail: 1
+            grid_options:
+              columns: full
+            name: Load
+            icon: mdi:monitor
+          - graph: line
+            type: sensor
+            entity: sensor.kellerserver_cpu_usage
+            grid_options:
+              columns: full
+            detail: 1
+            name: CPU usage
+            limits:
+              min: 0
+              max: 100
+      - type: grid
+        cards:
+          - type: heading
+            heading: Paspberry Pi
+            heading_style: title
+          - graph: line
+            type: sensor
+            entity: sensor.pi_cpu_load
+            detail: 1
+            name: Load
+            grid_options:
+              columns: full
+            icon: mdi:monitor
+          - graph: line
+            type: sensor
+            entity: sensor.pi_cpu_usage
+            detail: 1
+            name: CPU usage
+            grid_options:
+              columns: full
+            limits:
+              min: 0
+              max: 100
+      - type: grid
+        cards:
+          - type: heading
+            heading: VPS
+            heading_style: title
+          - type: history-graph
+            entities:
+              - entity: binary_sensor.vps
+            title: Availability

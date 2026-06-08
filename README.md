@@ -91,3 +91,8 @@ Installation:
    homeassistant:
      packages: !include_dir_named packages
    ```
+
+## Dashboards
+
+I keep my custom dashboards UI-configured, so YNAB files here are mostly a backup/example.  
+See comments in YNAB files for dashboard dependencies and other notes.
