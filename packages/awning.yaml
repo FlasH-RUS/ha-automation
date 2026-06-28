@@ -17,7 +17,7 @@ template:
         unique_id: "awning_auto_state"
         # This seems to be the only way to affect the generated entity_id
         default_entity_id: "binary_sensor.awning_auto_state"
-        device_class: light
+        device_class: opening
         state: >
           {{
             state_attr('sun.sun', 'azimuth') > 155 and 
@@ -189,7 +189,7 @@ automation:
         option: Aus bis Morgen
     mode: single
 
-  - alias: Auto open and close    
+  - alias: Auto open and close
     description: 'Automatically extend and retract the awning based on the weather forecast and the sun position.'
     # TODO: replace with a meaningful ID when switching to a new HA instance
     id: '1775244947613'
@@ -215,21 +215,22 @@ automation:
           state:
           - 'on'
         sequence:
-        - device_id: 1eaf72ce3939321d1131ec0ca53aec03
-          domain: cover
-          entity_id: 1b02ad77953097a224df1145de5fa08f
-          type: set_position
-          position: 65
+          - action: cover.set_cover_position
+            target:
+              entity_id: cover.sonoff_10018b1f1b
+            data:
+              position: 65
       - conditions:
         - condition: state
           entity_id: binary_sensor.awning_auto_state
           state:
           - 'off'
         sequence:
-        - device_id: 1eaf72ce3939321d1131ec0ca53aec03
-          domain: cover
-          entity_id: 1b02ad77953097a224df1145de5fa08f
-          type: close
+        - action: cover.set_cover_position
+          target:
+            entity_id: cover.sonoff_10018b1f1b
+          data:
+            position: 0
     mode: single
 
   - alias: 'Block awning for high winds'
@@ -245,8 +246,7 @@ automation:
         length > 0 }}'
     actions:
     - variables:
-        # TODO: tune the threshold once testing is complete
-        max_allowed_wind_gusts: 35
+        max_allowed_wind_gusts: 50
     - variables:
         windy_hours: >
           {{ state_attr('sensor.awning_forecast_data', 'hourly') 
