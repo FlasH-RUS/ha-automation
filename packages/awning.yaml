@@ -10,20 +10,45 @@ input_select:
       # Aus: Automation is off, manual control only.
       - "Aus"
 
+sensor:
+  # A sliding window max of sunshine to avoid mowing the awning for every cloud
+  - platform: statistics
+    # The name defines the ID
+    name: "Sunshine (sliding window)"
+    unique_id: a72ec25a-1be4-48ee-bb01-2e504589e3e7
+    entity_id: sensor.sunshine_at_8050
+    state_characteristic: value_max
+    max_age:
+      # MeteoSwiss updates every 10 min; 2 intervals + 1 min to avoid momentary drops in the end
+      minutes: 21
+    # Use the last stored value in case there are no stored values in max_age (e.g. no changes since then)
+    keep_last_sample: true
+  # A sliding window max of precipitation to avoid opening the awning right after the last raindrop
+  - platform: statistics
+    # The name defines the ID
+    name: "Precipitation (sliding window)"
+    unique_id: 929f6911-aa5a-4de1-a57d-ad73db3c925b
+    entity_id: sensor.precipitation_at_8050
+    state_characteristic: value_max
+    max_age:
+      # MeteoSwiss updates every 10 min; 2 intervals + 1 min to avoid momentary drops in the end
+      minutes: 21
+    # Use the last stored value in case there are no stored values in max_age (e.g. no changes since then)
+    keep_last_sample: true
+  # A sliding window max of wind gusts to wait a bit before allowing the awning to be extended after a gust
+  - platform: statistics
+    # The name defines the ID
+    name: "Wind gusts (sliding window)"
+    unique_id: 87f747fe-ca3b-4d71-aac5-8e6752ccae06
+    entity_id: sensor.wind_gusts_peak_1s_at_8050
+    state_characteristic: value_max
+    max_age:
+      # MeteoSwiss updates every 10 min; 2 intervals + 1 min to avoid momentary drops in the end
+      minutes: 21
+    # Use the last stored value in case there are no stored values in max_age (e.g. no changes since then)
+    keep_last_sample: true
+
 template:
-  # A binary sensor representing the end state of the awning when the automation is active.
-  - binary_sensor:
-      - name: "Markise Endzustand"
-        unique_id: "awning_auto_state"
-        # This seems to be the only way to affect the generated entity_id
-        default_entity_id: "binary_sensor.awning_auto_state"
-        device_class: opening
-        state: >
-          {{
-            state_attr('sun.sun', 'azimuth') > 155 and 
-            state_attr('sun.sun', 'elevation') > 28 and
-            is_state('calendar.markise', 'off')
-          }}
   # Trigger-based template sensor to get MeteoSwiss forecast data
   # to be used to control the awning
   - trigger:
@@ -77,7 +102,64 @@ template:
             {% endfor %}
 
             {{ ns.filtered }}
+  # Maximum awning opening (in %) no matter if it's automatic or manual.
+  # This is a safety measure to prevent awnign damage.
+  - sensor:
+      - name: Maximale sichere Markisenausfahrt
+        default_entity_id: sensor.awning_max_safe_opening
+        unique_id: c94f2d29-f6de-4702-bfc8-f6a5ac59450a
+        unit_of_measurement: "%"
+        icon: mdi:shield-sun
+        availability: >
+          {{ has_value('sensor.wind_gusts_sliding_window') and 
+             has_value('sensor.precipitation_at_8050') }}
+        state: >
+          {# Using sliding window for wind but exact value for precipitation as wind gusts can be 
+             much more short-lived; additionally the only expected wind gusts mode here is 50% -- 
+             really dangerous winds are supposed to be handled by a calendar event #}
+          {% set wind_gusts = states('sensor.wind_gusts_sliding_window') | float %}
+          {% set precipitation = states('sensor.precipitation_at_8050') | float %}
 
+          {# Direct danger for the awning #}
+          {% if precipitation > 0 or wind_gusts > 45 %}
+          0
+          {# Cautionary winds #}
+          {% elif wind_gusts > 35 %}
+          50
+          {# Safe to fully extend #}
+          {% else %}
+          100
+          {% endif %}
+  # Awning opening (in %), the automation would apply if it was on.
+  - sensor:
+      - name: Automatic Markisenausfahrt
+        default_entity_id: sensor.awning_auto_opening
+        unique_id: 7bf639fa-f9ad-44f5-b4a4-829a51a8c2d2
+        unit_of_measurement: "%"
+        icon: mdi:shield-sun
+        availability: >
+          {{ has_value('sensor.temperature_at_8050') and 
+             has_value('sensor.sunshine_sliding_window') and
+             has_value('sensor.precipitation_sliding_window') and
+             has_value('sensor.awning_max_safe_opening') }}
+        state: >
+          {% set sun_over_terrace = state_attr('sun.sun', 'azimuth') > 155 and 
+            state_attr('sun.sun', 'elevation') > 28 %}
+          {% set no_calendar_blocks = is_state('calendar.markise', 'off') %}
+
+          {% set temp_high_enough = states('sensor.temperature_at_8050') | float > 10 %}
+          {% set sunny_enough = states('sensor.sunshine_sliding_window') | float > 3 %}
+          {% set some_time_after_rain = states('sensor.precipitation_sliding_window') | float == 0 %}
+
+          {% set comfort_target = 0 %}
+          {% if sun_over_terrace and no_calendar_blocks and temp_high_enough and sunny_enough and some_time_after_rain %}
+            {% set comfort_target = 65 %}
+          {% endif %}
+
+          {# Defaulting to 0 is essential here to explicitly close the markise when the safety sensor is not available #}
+          {% set max_allowed = states('sensor.awning_max_safe_opening') | int(0) %}
+
+          {{ [comfort_target, max_allowed] | min }}
 
 script:
   # A script to join adjacent forecast blocks to not have redundant calendar events.
@@ -141,45 +223,36 @@ automation:
         entity_id: input_select.awning_automation_mode
     mode: single
 
-  - alias: Override Auto until tomorrow
-    description: In case the awning was moved externally -- override the automation
-      until tomorrow.
-    # TODO: replace with a meaningful ID when switching to a new HA instance
-    id: '1774901348871'
+  - alias: Awning automation manual override
+    description: "Turn off the awning automation by external closing. 
+      This is mostly a safety measure to be able to intercept the automation when HA is not reachable."
+    id: d36b071e-805f-4ee1-b19c-2e23d2deab98
+    mode: single
     triggers:
-    # Do not react to position transitions (`position` attribute changes);
-    # additionally Gemini states, context is usually only attached to the first event in a chain.
-    # This corresponds to my previous experience with `position` attribute as a trigger
-    # where `parent_id`/`user_id` values were inconsistent for different ways of action on the awning.
     - trigger: state
       entity_id:
         - cover.sonoff_10018b1f1b
-      to:
-      - "opening"
-      - "closing"
+      to: closed
     conditions:
-    - condition: state
+    - alias: Awning automation is on
+      condition: state
       entity_id: input_select.awning_automation_mode
       state:
       - Auto
     - alias: Triggered not by HA automation
       condition: template
-      # Here is how different triggers look like:
-      # - HA automation:
-      #   parent_id: 01KQPSZ1SPH99W32NY87TH0VKV
-      #   user_id: null
-      # - Physical button:
-      #   parent_id: null
-      #   user_id: null
-      # - HA widget:
-      #   parent_id: null
-      #   user_id: f596c184776c4b2db0f23d1727db21e2
-      # - Google Home: 
-      #   parent_id: null
-      #   user_id: null
+      # See the design doc for the comprehensive analysis of move events for different triggers.
+      # WARNING: that this is not 100% reliable and sometimes passes even automation-triggered closings.
       value_template: >
-        {# React to anything but HA automations #}
-        {{ trigger.to_state.context.parent_id == none }}
+        {# HA sets parent_id for automation-triggered moves #}
+        {{ trigger.from_state.context.parent_id == none }}
+    - alias: Manual override detection (closed when auto wanted it open)
+      condition: template
+      value_template: >
+        {% set actual_pos = state_attr('cover.sonoff_10018b1f1b', 'current_position') | int %}
+        {# Default to 100 to make full close disable automation when the comfort level is unavailable #}
+        {% set auto_target = states('sensor.awning_auto_opening') | int(100) %}
+        {{ actual_pos < 10 and actual_pos < auto_target }}
     actions:
     - action: input_select.select_option
       metadata: {}
@@ -187,51 +260,127 @@ automation:
         entity_id: input_select.awning_automation_mode
       data:
         option: Aus bis Morgen
-    mode: single
 
-  - alias: Auto open and close
-    description: 'Automatically extend and retract the awning based on the weather forecast and the sun position.'
-    # TODO: replace with a meaningful ID when switching to a new HA instance
-    id: '1775244947613'
+  - alias: Prevent unsafe awning moves
+    description: Do not allow manual moves that exceed the safe limit.
+    id: 43eb7042-e770-4f62-9542-3f9a4386fe47
+    mode: single
     triggers:
     - trigger: state
       entity_id:
-      - binary_sensor.awning_auto_state
+        - cover.sonoff_10018b1f1b
+      attribute: current_position
+    conditions:
+    # Triggers either track state changes or attribute changes; I need to track current_position but
+    # only care when it's opening.
+    - alias: Is opening
+      condition: template
+      value_template: >
+        {{ trigger.to_state.state == 'opening' }}
+    - alias: Triggered not by HA automation
+      condition: template
+      # See the design doc for the comprehensive analysis of move events for different triggers
+      value_template: >
+        {# HA sets parent_id for automation-triggered moves #}
+        {{ trigger.to_state.context.parent_id == none }}
+    - alias: Exceeds safe limit
+      condition: template
+      value_template: >
+        {# Default to 100 to not block manual moves for unknown limits #}
+        {{ trigger.to_state.attributes.current_position > states('sensor.awning_max_safe_opening') | int(100) }}
+    actions:
+    - action: cover.set_cover_position
+      target:
+        entity_id: cover.sonoff_10018b1f1b
+      data:
+        position: "{{ states('sensor.awning_max_safe_opening') | int }}"
+
+  - alias: "Awning safety: enforce safe limit"
+    description: "Enforce the maximum awning opening limit to prevent damage."
+    id: fe2464e3-3e29-4289-afd5-3b98e03d2474
+    mode: single
+    trigger:
+    - trigger: state
+      entity_id: sensor.awning_max_safe_opening
+    condition:
+    - condition: template
+      value_template: >
+        {# Only react if the current position exceeds the safe limit #}
+        {% set current = state_attr('cover.sonoff_10018b1f1b', 'current_position') | int(0) %}
+        {# Default to 0 to force-close the awning when the safe limit is unavailable #}
+        {% set safe = states('sensor.awning_max_safe_opening') | int(0) %}
+        {{ current > safe }}
+    action:
+    - action: cover.set_cover_position
+      target:
+        entity_id: cover.sonoff_10018b1f1b
+      data:
+        position: "{{ states('sensor.awning_max_safe_opening') | int(0) }}"
+
+  - alias: "Awning: enable auto mode"
+    id: c2ee768f-ee08-4b2b-8bec-5f20c2865908
+    mode: single
+    triggers:
     - trigger: state
       entity_id:
       - input_select.awning_automation_mode
       to:
       - Auto
     conditions:
+    # Do not move the awning in case the end state is unknown;
+    # there is a separate automation to close it for safety reasons
+    - condition: template
+      value_template: "{{ has_value('sensor.awning_auto_opening') }}"      
+    actions:
+    - action: cover.set_cover_position
+      target:
+        entity_id: cover.sonoff_10018b1f1b
+      data:
+        position: '{{ states(''sensor.awning_auto_opening'') | int }}'
+
+  - alias: "Awning comfort: provide shade"
+    description: 'Automatically open and close the awning based on the weather and the sun position.'
+    id: cd3bf0ba-eea4-4507-bf78-e63bfeff89f4
+    mode: single
+    triggers:
+    - trigger: state
+      entity_id:
+      - sensor.awning_auto_opening
+    conditions:
     - condition: state
       entity_id: input_select.awning_automation_mode
       state:
       - Auto
+    # Do not move the awning when the safety automation is expected to act
+    - condition: template
+      value_template: >
+        {% set next_auto = trigger.to_state.state | int %}
+        {# Default to 0 for unknown as this case should be handled by the safety automation #}
+        {% set safe = states('sensor.awning_max_safe_opening') | int(0) %}
+
+        {{ next_auto < safe }}
+    # Do not move the awning in case the end state is unknown;
+    # there is a separate automation to close it for safety reasons
+    - condition: template
+      value_template: "{{ has_value('sensor.awning_auto_opening') }}"
+    # Do not move the awning if the suggested level is lower than the current;
+    # Safety-driven retractions will be handled by the safety automation anyway.
+    - condition: template
+      value_template: >
+        {% set new_value = trigger.to_state.state | int %}
+        {# Default to 0 for unknown to not block any awning moves #}
+        {% set actual_position = state_attr('cover.sonoff_10018b1f1b', 'current_position') | int(0) %}
+
+        {% set is_extending_more = new_value > actual_position %}
+        {% set is_fully_retracting = new_value == 0 %}
+
+        {{ is_extending_more or is_fully_retracting }}
     actions:
-    - choose:
-      - conditions:
-        - condition: state
-          entity_id: binary_sensor.awning_auto_state
-          state:
-          - 'on'
-        sequence:
-          - action: cover.set_cover_position
-            target:
-              entity_id: cover.sonoff_10018b1f1b
-            data:
-              position: 65
-      - conditions:
-        - condition: state
-          entity_id: binary_sensor.awning_auto_state
-          state:
-          - 'off'
-        sequence:
-        - action: cover.set_cover_position
-          target:
-            entity_id: cover.sonoff_10018b1f1b
-          data:
-            position: 0
-    mode: single
+    - action: cover.set_cover_position
+      target:
+        entity_id: cover.sonoff_10018b1f1b
+      data:
+        position: '{{ trigger.to_state.state | int }}'
 
   - alias: 'Block awning for high winds'
     description: Creates calendar events for the hours with high wind gusts in the forecast to block the awning from being extended.
@@ -246,7 +395,8 @@ automation:
         length > 0 }}'
     actions:
     - variables:
-        max_allowed_wind_gusts: 50
+        # TODO: use varibale as the same value is used in the sensor.awning_max_safe_opening
+        max_allowed_wind_gusts: 45
     - variables:
         windy_hours: >
           {{ state_attr('sensor.awning_forecast_data', 'hourly') 
@@ -301,74 +451,6 @@ automation:
               start_date_time: "{{ repeat.item.start }}"
               end_date_time: "{{ repeat.item.end }}"
 
-  - alias: 'Block awning for cloudy weather'
-    description: Creates calendar events for the hours with cloudy weather in the forecast to block the awning from being extended.
-    id: 'block_awning_for_cloudy_weather'
-    triggers:
-    - entity_id: sensor.awning_forecast_data
-      trigger: state
-      attribute: hourly
-    conditions:
-    - condition: template
-      value_template: '{{ state_attr(''sensor.awning_forecast_data'', ''hourly'') |
-        length > 0 }}'
-    actions:
-    - variables:
-        min_allowed_sunshine: 10
-    - variables:
-        windy_hours: >
-          {{ state_attr('sensor.awning_forecast_data', 'hourly') 
-            | selectattr('sunshine', 'lt', min_allowed_sunshine) | list }}
-    - action: script.join_adjacent_forecast_blocks
-      data:
-        input_hours: '{{ windy_hours }}'
-      response_variable: aggregated
-    - repeat:
-        for_each: '{{ aggregated.events }}'
-        sequence:
-          - action: google.create_event
-            target:
-              entity_id: calendar.markise
-            data:
-              summary: "HA: Cloudy weather"
-              description: "Forecasted sunshine < {{ min_allowed_sunshine }} min/h"
-              start_date_time: "{{ repeat.item.start }}"
-              end_date_time: "{{ repeat.item.end }}"
-
-  - alias: 'Block awning for low temperature'
-    description: Creates calendar events for the hours with low temperature in the forecast to block the awning from being extended.
-    id: 'block_awning_for_low_temperature'
-    triggers:
-    - entity_id: sensor.awning_forecast_data
-      trigger: state
-      attribute: hourly
-    conditions:
-    - condition: template
-      value_template: '{{ state_attr(''sensor.awning_forecast_data'', ''hourly'') |
-        length > 0 }}'
-    actions:
-    - variables:
-        min_allowed_templow: 10
-    - variables:
-        windy_hours: >
-          {{ state_attr('sensor.awning_forecast_data', 'hourly') 
-            | selectattr('templow', 'lt', min_allowed_templow) | list }}
-    - action: script.join_adjacent_forecast_blocks
-      data:
-        input_hours: '{{ windy_hours }}'
-      response_variable: aggregated
-    - repeat:
-        for_each: '{{ aggregated.events }}'
-        sequence:
-          - action: google.create_event
-            target:
-              entity_id: calendar.markise
-            data:
-              summary: "HA: Low temperature"
-              description: "Forecasted temperature < {{ min_allowed_templow }} °C"
-              start_date_time: "{{ repeat.item.start }}"
-              end_date_time: "{{ repeat.item.end }}"
-
   # This is a safety net automation to catch any errors in the awning blocking logic
   # and switch to manual override in case of an error to prevent the awning from being
   # extended when it shouldn't be.
@@ -387,8 +469,6 @@ automation:
           level: ERROR
     variables:
       watched_integration_ids:
-        - "automation.block_awning_for_low_temperature"
-        - "automation.block_awning_for_cloudy_weather"
         - "automation.block_awning_for_precipitation"
         - "automation.block_awning_for_high_winds"
         - "sensor.awning_forecast_data"

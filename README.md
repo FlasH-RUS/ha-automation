@@ -64,6 +64,16 @@ The whole things consists of two blocks:
   > [!IMPORTANT]
   > This is another safety net to prevent awning opening not knowing that's a bad weather outside.
 
+### Known problems
+
+Statistical sensors used to smooth rapid weather changes to avoid frequent awning moves use `keep_last_sample` to
+use the last avaialble value when there were no changes in the original sensor during the sliding window duration.
+This is only used after restarts/configs reload as all the other time Swiss Weather integration provides updates
+every 10 minutes.  
+
+But apparently `keep_last_sample` doesn't work with `max_age`. As a result sliding window sensors are prone to
+turning unavailable on HA system restart/config reload: see https://github.com/home-assistant/core/issues/153562.
+
 ### Installation
 
 Prerequisites:
@@ -75,22 +85,16 @@ Installation:
 
 1. Copy the `packages` folder with all its contents under your Home Assistant `config` folder.
 1. Review all scripts for external ID references; change them to your IDs.
-1. Add the following lines to your Home Assistant `config.yaml`:
+1. Add the following lines to your Home Assistant `configuration.yaml`:
 
-   ```yaml
-   system_log:
-     fire_event: true
-   ```
+  ```yaml
+  # This is needed to alert on automation failures
+  system_log:
+    fire_event: true
 
-   > [!NOTE]
-   > This is required for a safety net watcher automation to work.
-
-1. Add the following lines to your Home Assistant `config.yaml`:
-
-   ```yaml
-   homeassistant:
-     packages: !include_dir_named packages
-   ```
+  homeassistant:
+    packages: !include_dir_named packages
+  ```
 
 ### Development
 
