@@ -121,10 +121,10 @@ template:
           {% set precipitation = states('sensor.precipitation_at_8050') | float %}
 
           {# Direct danger for the awning #}
-          {% if precipitation > 0 or wind_gusts > 45 %}
+          {% if precipitation > 0 or wind_gusts > 50 %}
           0
           {# Cautionary winds #}
-          {% elif wind_gusts > 35 %}
+          {% elif wind_gusts > 40 %}
           50
           {# Safe to fully extend #}
           {% else %}
@@ -148,7 +148,7 @@ template:
           {% set no_calendar_blocks = is_state('calendar.markise', 'off') %}
 
           {% set temp_high_enough = states('sensor.temperature_at_8050') | float > 10 %}
-          {% set sunny_enough = states('sensor.sunshine_sliding_window') | float > 3 %}
+          {% set sunny_enough = states('sensor.sunshine_sliding_window') | float > 1 %}
           {% set some_time_after_rain = states('sensor.precipitation_sliding_window') | float == 0 %}
 
           {% set comfort_target = 0 %}
@@ -250,8 +250,9 @@ automation:
       condition: template
       value_template: >
         {% set actual_pos = state_attr('cover.sonoff_10018b1f1b', 'current_position') | int %}
-        {# Default to 100 to make full close disable automation when the comfort level is unavailable #}
-        {% set auto_target = states('sensor.awning_auto_opening') | int(100) %}
+        {# Default to 0 to not disable automation when the comfort limit is unavailable;
+           otherwise closing triggered by unavailability disables automation #}
+        {% set auto_target = states('sensor.awning_auto_opening') | int(0) %}
         {{ actual_pos < 10 and actual_pos < auto_target }}
     actions:
     - action: input_select.select_option
@@ -271,7 +272,14 @@ automation:
         - cover.sonoff_10018b1f1b
       attribute: current_position
     conditions:
-    # Triggers either track state changes or attribute changes; I need to track current_position but
+    # Allow opening the awning if automation is off. This allows to override the safety limit as
+    # if can be false (e.g. when the local weather is better than at the nearest weather station)
+    - alias: Only when automation is on
+      condition: state
+      entity_id: input_select.awning_automation_mode
+      state:
+      - Auto
+    # Triggers either tracks state changes or attribute changes; I need to track current_position but
     # only care when it's opening.
     - alias: Is opening
       condition: template
@@ -397,7 +405,7 @@ automation:
     actions:
     - variables:
         # TODO: use varibale as the same value is used in the sensor.awning_max_safe_opening
-        max_allowed_wind_gusts: 45
+        max_allowed_wind_gusts: 50
     - variables:
         windy_hours: >
           {{ state_attr('sensor.awning_forecast_data', 'hourly') 
