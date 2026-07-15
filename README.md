@@ -92,6 +92,67 @@ Installation:
      packages: !include_dir_named packages
    ```
 
+### Development
+
+Deployment script is available at `deploy.sh`. It:
+
+- Uploads YAML files that are consumed as is by your HA to the machine running it.
+- Triggers YAML validation on the machine.
+- Triggers YAML files reload on the machine.
+
+#### Prerequisites
+
+1. You should be able to log into the machine without a password. Make sure to run `ssh-copy-id user@$MACHINE_IP` before you start using the script.
+1. Create the following task in you VSCode `.vscode/tasks.json` to streamline redeployment:
+
+    ```
+    {
+      "version": "2.0.0",
+      "tasks": [
+        {
+          "label": "Deploy & validate HA config",
+          "type": "shell",
+          "command": "./deploy.sh",
+          "args": [
+            "user", // User on the prod machine
+            "1.2.3.4", // Prod machine address
+            "/opt/docker/homeassistant/config/", // HA location on the prod machine
+            "LONG-LIVED-HA-ACCESS-TOCKEN" // HA long-lived access tocken
+          ],
+          "options": {
+            "cwd": "${workspaceFolder}"
+          },
+          "presentation": {
+            "reveal": "always",
+            "panel": "dedicated",
+            "clear": true,
+            "showReuseMessage": false,
+            "focus": true
+          },
+          "problemMatcher": []
+        }
+      ]
+    }
+    ```
+
+1. Create a button on the status bar to trigger the task by adding the following to your `.vscode/settings.json` ([VsCode Action Buttons](https://marketplace.visualstudio.com/items?itemName=seunlanlege.action-buttons) extension is required):
+
+   ```
+   {
+     "actionButtons.commands": [
+       {
+         "name": "$(cloud-upload) Deploy to Pi",
+         "command": "workbench.action.tasks.runTask",
+         "args": ["Deploy & validate HA config"],
+         "useVsCodeApi": true,
+         "color": "#4caf50",
+         "tooltip": "Sync config to Pi, validate YAML, and reload HA"
+       }
+     ]
+   }
+
+   ```
+
 ## Dashboards
 
 I keep my custom dashboards UI-configured, so YNAB files here are mostly a backup/example.  
