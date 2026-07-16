@@ -390,8 +390,9 @@ automation:
       trigger: state
       attribute: hourly
     conditions:
-    - condition: template
-      value_template: '{{ state_attr(''sensor.awning_forecast_data'', ''hourly'') |
+    - alias: Forecast data available
+      condition: template
+      value_template: '{{ (state_attr(''sensor.awning_forecast_data'', ''hourly'') | default([], true)) |
         length > 0 }}'
     actions:
     - variables:
@@ -425,8 +426,9 @@ automation:
       trigger: state
       attribute: hourly
     conditions:
-    - condition: template
-      value_template: '{{ state_attr(''sensor.awning_forecast_data'', ''hourly'') |
+    - alias: Forecast data available
+      condition: template
+      value_template: '{{ (state_attr(''sensor.awning_forecast_data'', ''hourly'') | default([], true)) |
         length > 0 }}'
     actions:
     - variables:
@@ -451,10 +453,9 @@ automation:
               start_date_time: "{{ repeat.item.start }}"
               end_date_time: "{{ repeat.item.end }}"
 
-  # This is a safety net automation to catch any errors in the awning blocking logic
-  # and switch to manual override in case of an error to prevent the awning from being
-  # extended when it shouldn't be.
-  # This is quite ugly but there seems to be no other option.
+  # This is a safety net automation to catch any problems in the awning automation.
+  # This is quite ugly and too broad but there seems to be no other way until this FR is implemented:
+  # https://community.home-assistant.io/t/event-type-for-automation-error/752268/3.
   # 
   # It requires the following in the configuration.yaml to work:
   # system_log:
@@ -465,32 +466,46 @@ automation:
     trigger:
       - platform: event
         event_type: system_log_event
-        event_data:
-          level: ERROR
-    variables:
-      watched_integration_ids:
-        - "automation.block_awning_for_precipitation"
-        - "automation.block_awning_for_high_winds"
-        - "sensor.awning_forecast_data"
-      error_message_ids: >
-        {% set ids_regex = watched_integration_ids | join('|') %}
-        {{ trigger.event.data.message | regex_findall(ids_regex) }}
     condition:
-      - alias: "Check if this is an error from one of the awning blocking automations"
+      # There's no way to ALWAYS understand, which automation caused it, so catching everything
+      - alias: "Check if this is an error from one of an automation"
         condition: template
         value_template: >
-          {{ error_message_ids | length > 0 }}
+          {{ "homeassistant.components.automation" in trigger.event.data.name }}
     actions:
+      - action: notify.notify
+        data:
+          message: "❌ Automation failed!"
       - action: notify.persistent_notification
         data:
-          title: "🛑 Awning blocking logic error"
+          title: "Automation failed"
           message: >
-            Error in {{ error_message_ids }}.  
-            
-            Awning automation is paused until tomorrow.
-      - action: input_select.select_option
-        metadata: {}
-        target:
-          entity_id: input_select.awning_automation_mode
+            {{ trigger.event.data.message }}
+
+  # Alert when critical awning sensors are unavailable/unknown to allow for manual intervention if needed.
+  - alias: "Awning: alert when sensors are offline"
+    id: awning_sensors_offline_alert
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id:
+          - sensor.awning_max_safe_opening
+          - sensor.awning_auto_opening
+          - sensor.awning_forecast_data
+        to:
+          - unavailable
+          - unknown
+        # Do not alert for short unavailability (e.g. during a restart) to avoid spamming the user
+        for:
+          seconds: 5
+    actions:
+      - action: notify.notify
         data:
-          option: Aus bis Morgen
+          message: "❌ Awning sensor has a problem!"
+      - action: notify.persistent_notification
+        data:
+          title: "Awning sensor has a problem"
+          message: >
+            Sensor "{{ trigger.to_state.name }}" has changed to state: {{ trigger.to_state.state | upper }}.
+
+            Automation may not work correctly!
