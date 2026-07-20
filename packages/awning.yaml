@@ -493,7 +493,7 @@ automation:
   # Alert when critical awning sensors are unavailable/unknown to allow for manual intervention if needed.
   - alias: "Awning: alert when sensors are offline"
     id: awning_sensors_offline_alert
-    mode: single
+    mode: parallel
     triggers:
       - trigger: state
         entity_id:
