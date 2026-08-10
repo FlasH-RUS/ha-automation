@@ -5,39 +5,8 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading_style: title
-            heading: UG
-          - graph: line
-            type: sensor
-            entity: sensor.kellerserver_cpu_load
-            detail: 1
-            grid_options:
-              columns: full
-            name: Load
-            icon: mdi:monitor
-          - graph: line
-            type: sensor
-            entity: sensor.kellerserver_cpu_usage
-            grid_options:
-              columns: full
-            detail: 1
-            name: CPU usage
-            limits:
-              min: 0
-              max: 100
-      - type: grid
-        cards:
-          - type: heading
             heading: Pi
             heading_style: title
-          - graph: line
-            type: sensor
-            entity: sensor.pi_cpu_load
-            detail: 1
-            name: Load
-            grid_options:
-              columns: full
-            icon: mdi:monitor
           - graph: line
             type: sensor
             entity: sensor.pi_cpu_usage
@@ -45,6 +14,45 @@ views:
             name: CPU usage
             grid_options:
               columns: full
+              rows: auto
+            limits:
+              min: 0
+              max: 100
+          - graph: line
+            type: sensor
+            entity: sensor.pi_memory_usage
+            detail: 1
+            name: Memory usage
+            grid_options:
+              columns: full
+              rows: auto
+            limits:
+              min: 0
+              max: 100
+      - type: grid
+        cards:
+          - type: heading
+            heading_style: title
+            heading: UG
+          - graph: line
+            type: sensor
+            entity: sensor.kellerserver_cpu_usage
+            grid_options:
+              columns: full
+              rows: auto
+            detail: 1
+            name: CPU usage
+            limits:
+              min: 0
+              max: 100
+          - graph: line
+            type: sensor
+            entity: sensor.kellerserver_memory_usage
+            grid_options:
+              columns: full
+              rows: auto
+            detail: 1
+            name: Memory usage
             limits:
               min: 0
               max: 100
@@ -55,19 +63,23 @@ views:
             heading_style: title
           - graph: line
             type: sensor
-            entity: sensor.vps_cpu_load
-            detail: 1
-            name: Load
-            grid_options:
-              columns: full
-            icon: mdi:monitor
-          - graph: line
-            type: sensor
             entity: sensor.vps_cpu_usage
             detail: 1
             name: CPU usage
             grid_options:
               columns: full
+              rows: auto
+            limits:
+              min: 0
+              max: 100
+          - graph: line
+            type: sensor
+            entity: sensor.vps_memory_usage
+            detail: 1
+            name: Memory usage
+            grid_options:
+              columns: full
+              rows: auto
             limits:
               min: 0
               max: 100
@@ -78,3 +90,4 @@ views:
             name: TX
             grid_options:
               columns: full
+              rows: auto
