@@ -143,8 +143,18 @@ template:
              has_value('sensor.precipitation_sliding_window') and
              has_value('sensor.awning_max_safe_opening') }}
         state: >
-          {% set sun_over_terrace = state_attr('sun.sun', 'azimuth') > 155 and 
-            state_attr('sun.sun', 'elevation') > 28 %}
+          {# - Azimuth > 155 (crosses the eastern block)
+             - When rising: elevation > 50 (rises above the eastern block)
+             - When setting: elevation > 28 (sets below the western block)
+          #}
+          {% set sun_over_terrace =
+            state_attr('sun.sun', 'azimuth') > 155 and
+            state_attr('sun.sun', 'elevation') > 28 and
+            (
+              (not state_attr('sun.sun', 'rising')) or 
+              state_attr('sun.sun', 'elevation') > 50
+            )
+          %}
           {% set no_calendar_blocks = is_state('calendar.markise', 'off') %}
 
           {% set temp_high_enough = states('sensor.temperature_at_8050') | float > 10 %}
