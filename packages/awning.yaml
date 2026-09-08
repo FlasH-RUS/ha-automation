@@ -49,6 +49,67 @@ sensor:
     keep_last_sample: true
 
 template:
+  # Sun elevation angle after which the terrace is sunlit in the morning and until which it is sunlit in the evening
+  - sensor:
+      - name: Sunlit terrace critical elevation angle
+        default_entity_id: sensor.sunlit_terrace_crit_angle
+        unique_id: e29cba3f-bb61-4027-968e-a875b39f5d28
+        unit_of_measurement: "°"
+        icon: mdi:angle-acute
+        state: >
+          {% set a = state_attr('sun.sun', 'azimuth') %}
+
+          {# Building bearing #}
+          {% set offset = 4.53 %}
+          {# Our apartment is 2.83; the same is according to barometer between 0 and 6 floor #}
+          {% set h_floor = 2.83 %}
+          {# Lowest part of the terrace glass roof #}
+          {% set h_terrace_roof_low = 2.48 %}
+          {# Highest part of the terrace glass roof #}
+          {% set h_terrace_roof_high = 3.30 %}
+
+          {% set azimuth_diff = a - offset %}
+          {# Handle boundary values explicitly #}
+          {% if (azimuth_diff % 180 | abs) < 5 %}
+            {{ 0.0 }}
+          {% else %}
+            {% set vars = namespace(h=0, d=0) %}
+            {# Eastern wing; morning #}
+            {% if 0 < azimuth_diff < 180 %}
+              {# 7 floors - terrace height  #}
+              {% set vars.h = 7 * h_floor - h_terrace_roof_low %}
+              {# Terrace door to the edge of rounded balconies #}
+              {% set vars.d = 5 %}
+            {# Western wing; evening #}
+            {% else %}
+              {# 8 floors - terrace height #}
+              {% set vars.h = 8 * h_floor - h_terrace_roof_high %}
+              {# Terrace glass roof start to the edge of the 8 floor balcony roof #}
+              {% set vars.d = 34.6 %}
+            {% endif %}
+
+            {% set sin_val = sin(azimuth_diff / 180 * pi) | abs %}
+            {% set l_proj = vars.d / sin_val %}
+            {% set theta_crit = atan(vars.h / l_proj) / pi * 180 %}
+            {{ theta_crit }}
+          {% endif %}
+  # A binary sensor that converts the critical angle above and the current sun elevation into a
+  # boolean value to indicate if the terrace is sunlit or not
+  - binary_sensor:
+      - name: Sunlit terrace
+        default_entity_id: binary_sensor.sunlit_terrace
+        unique_id: 7a3f862a-5efa-4adb-afeb-6b900161d233
+        icon: mdi:weather-sunny
+        device_class: light
+        state: >
+          {% set theta = state_attr('sun.sun', 'elevation') %}
+
+          {% if theta > 0 %}
+            {% set theta_crit = states("sensor.sunlit_terrace_crit_angle") | float %}
+            {{ theta > theta_crit }}
+          {% else %}
+            {{ false }}
+          {% endif %}
   # Trigger-based template sensor to get MeteoSwiss forecast data
   # to be used to control the awning
   - trigger:
@@ -143,18 +204,7 @@ template:
              has_value('sensor.precipitation_sliding_window') and
              has_value('sensor.awning_max_safe_opening') }}
         state: >
-          {# - Azimuth > 155 (crosses the eastern block)
-             - When rising: elevation > 50 (rises above the eastern block)
-             - When setting: elevation > 28 (sets below the western block)
-          #}
-          {% set sun_over_terrace =
-            state_attr('sun.sun', 'azimuth') > 155 and
-            state_attr('sun.sun', 'elevation') > 28 and
-            (
-              (not state_attr('sun.sun', 'rising')) or 
-              state_attr('sun.sun', 'elevation') > 50
-            )
-          %}
+          {% set sun_over_terrace = is_state('binary_sensor.sunlit_terrace', 'on') %}
           {% set no_calendar_blocks = is_state('calendar.markise', 'off') %}
 
           {% set temp_high_enough = states('sensor.temperature_at_8050') | float > 10 %}
