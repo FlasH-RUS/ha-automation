@@ -10,7 +10,7 @@ views:
           - graph: line
             type: sensor
             entity: sensor.pi_cpu_usage
-            detail: 1
+            detail: 2
             name: CPU usage
             grid_options:
               columns: full
@@ -21,7 +21,7 @@ views:
           - graph: line
             type: sensor
             entity: sensor.pi_memory_usage
-            detail: 1
+            detail: 2
             name: Memory usage
             grid_options:
               columns: full
@@ -40,7 +40,7 @@ views:
             grid_options:
               columns: full
               rows: auto
-            detail: 1
+            detail: 2
             name: CPU usage
             limits:
               min: 0
@@ -51,7 +51,7 @@ views:
             grid_options:
               columns: full
               rows: auto
-            detail: 1
+            detail: 2
             name: Memory usage
             limits:
               min: 0
@@ -64,7 +64,7 @@ views:
           - graph: line
             type: sensor
             entity: sensor.vps_cpu_usage
-            detail: 1
+            detail: 2
             name: CPU usage
             grid_options:
               columns: full
@@ -75,7 +75,7 @@ views:
           - graph: line
             type: sensor
             entity: sensor.vps_memory_usage
-            detail: 1
+            detail: 2
             name: Memory usage
             grid_options:
               columns: full
@@ -86,8 +86,10 @@ views:
           - graph: line
             type: sensor
             entity: sensor.vps_eth0_tx
-            detail: 1
+            detail: 2
             name: TX
             grid_options:
               columns: full
               rows: auto
+            limits:
+              min: 1
