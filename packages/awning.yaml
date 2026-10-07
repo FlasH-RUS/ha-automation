@@ -11,6 +11,18 @@ input_select:
       - "Aus"
 
 sensor:
+  # A sliding window max of temperature; this is only needed to avoid the temperature sensor being unavailable for a short time
+  - platform: statistics
+    # The name defines the ID
+    name: "Temperature (sliding window)"
+    unique_id: 20a7d3b2-c3c9-4a0e-900a-3ec4e8baf084
+    entity_id: sensor.temperature_at_8050
+    state_characteristic: value_max
+    max_age:
+      # MeteoSwiss updates every 10 min; 2 intervals + 1 min to avoid momentary drops in the end
+      minutes: 21
+    # Use the last stored value in case there are no stored values in max_age (e.g. no changes since then)
+    keep_last_sample: true
   # A sliding window max of sunshine to avoid mowing the awning for every cloud
   - platform: statistics
     # The name defines the ID
@@ -199,7 +211,7 @@ template:
         unit_of_measurement: "%"
         icon: mdi:shield-sun
         availability: >
-          {{ has_value('sensor.temperature_at_8050') and 
+          {{ has_value('sensor.temperature_sliding_window') and 
              has_value('sensor.sunshine_sliding_window') and
              has_value('sensor.precipitation_sliding_window') and
              has_value('sensor.awning_max_safe_opening') }}
@@ -207,7 +219,7 @@ template:
           {% set sun_over_terrace = is_state('binary_sensor.sunlit_terrace', 'on') %}
           {% set no_calendar_blocks = is_state('calendar.markise', 'off') %}
 
-          {% set temp_high_enough = states('sensor.temperature_at_8050') | float > 10 %}
+          {% set temp_high_enough = states('sensor.temperature_sliding_window') | float > 10 %}
           {% set sunny_enough = states('sensor.sunshine_sliding_window') | float > 1 %}
           {% set some_time_after_rain = states('sensor.precipitation_sliding_window') | float == 0 %}
 
