@@ -1,0 +1,205 @@
+script:
+  set_pwm_trv_power_logic:
+    alias: "Logic to set power for a PWM TRV"
+    fields:
+      power_number:
+        description: "ID of the number to set power level to"
+      climate_entity:
+        description: "ID of the climate template entity to translate to power"
+      hvac_mode:
+        description: "HVAC mode; only 'off' and 'heat' are supported"
+      preset_mode:
+        description: "Preset mode; only 'eco', 'comfort', and 'boost' are supported"
+    sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: '{{ power_number }}'
+        data:
+          value: >
+            {% if hvac_mode == 'off' %}
+              0
+            {% else %}
+              {{ {'eco': 33, 'comfort': 66, 'boost': 100}.get(preset_mode, 33) }}
+            {% endif %}
+
+input_number:
+  ankleide_pwm_trv_power:
+    name: "Ankleide PWM TRV power"
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: slider
+  kuche_pwm_trv_power:
+    name: "Kuche PWM TRV power"
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: slider
+  wc_pwm_trv_power:
+    name: "WC PWM TRV power"
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: slider
+
+climate:
+  - platform: climate_template
+    name: Ankleide PWM TRV
+    unique_id: 2f618cce-2818-42bd-aa60-09fd4c58e49c
+    modes:
+      - "off"
+      - "heat"
+    preset_modes:
+      - "eco"
+      - "comfort"
+      - "boost"
+    set_hvac_mode:
+      - action: script.turn_on
+        target:
+          entity_id: script.set_pwm_trv_power_logic
+        data:
+          variables:
+            power_number: input_number.ankleide_pwm_trv_power
+            climate_entity: '{{ this.entity_id }}'
+            hvac_mode: '{{ hvac_mode }}'
+            preset_mode: '{{ this.attributes.preset_mode | default(''eco'', true) }}'
+    set_preset_mode:
+      - action: script.turn_on
+        target:
+          entity_id: script.set_pwm_trv_power_logic
+        data:
+          variables:
+            power_number: input_number.ankleide_pwm_trv_power
+            climate_entity: '{{ this.entity_id }}'
+            hvac_mode: '{{ this.state }}'
+            preset_mode: '{{ preset_mode }}'
+  - platform: climate_template
+    name: Kuche PWM TRV
+    unique_id: d9fccd3b-6a6c-45df-81cf-c04af19b2436
+    modes:
+      - "off"
+      - "heat"
+    preset_modes:
+      - "eco"
+      - "comfort"
+      - "boost"
+    set_hvac_mode:
+      - action: script.turn_on
+        target:
+          entity_id: script.set_pwm_trv_power_logic
+        data:
+          variables:
+            power_number: input_number.kuche_pwm_trv_power
+            climate_entity: '{{ this.entity_id }}'
+            hvac_mode: '{{ hvac_mode }}'
+            preset_mode: '{{ this.attributes.preset_mode | default(''eco'', true) }}'
+    set_preset_mode:
+      - action: script.turn_on
+        target:
+          entity_id: script.set_pwm_trv_power_logic
+        data:
+          variables:
+            power_number: input_number.kuche_pwm_trv_power
+            climate_entity: '{{ this.entity_id }}'
+            hvac_mode: '{{ this.state }}'
+            preset_mode: '{{ preset_mode }}'
+  - platform: climate_template
+    name: WC PWM TRV
+    unique_id: e2f8f665-742a-4a85-bfdd-33a818dc6890
+    modes:
+      - "off"
+      - "heat"
+    preset_modes:
+      - "eco"
+      - "comfort"
+      - "boost"
+    set_hvac_mode:
+      - action: script.turn_on
+        target:
+          entity_id: script.set_pwm_trv_power_logic
+        data:
+          variables:
+            power_number: input_number.wc_pwm_trv_power
+            climate_entity: '{{ this.entity_id }}'
+            hvac_mode: '{{ hvac_mode }}'
+            preset_mode: '{{ this.attributes.preset_mode | default(''eco'', true) }}'
+    set_preset_mode:
+      - action: script.turn_on
+        target:
+          entity_id: script.set_pwm_trv_power_logic
+        data:
+          variables:
+            power_number: input_number.wc_pwm_trv_power
+            climate_entity: '{{ this.entity_id }}'
+            hvac_mode: '{{ this.state }}'
+            preset_mode: '{{ preset_mode }}'
+
+automation:
+  - alias: "UFH stateless PWM engine"
+    id: 6b2d8bd2-4331-4a14-96e3-7da232fa1d82
+    mode: queued
+    trigger:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: "/5"
+    action:
+      - variables:
+          cycle_sec: 7200 # 2 hours
+          # Limit motor travel distance for the effective range all all zones;
+          # this saves battery -- and even more if the valve avoids ends
+          valve_min: 5
+          valve_max: 30
+          # Zones covered by this automation
+          zones:
+            - power_entity_id: "input_number.ankleide_pwm_trv_power"
+              valve_entity_id: "number.ankleide_trv_valve_position"
+            - power_entity_id: "input_number.kuche_pwm_trv_power"
+              valve_entity_id: "number.kuche_trv_valve_position"
+            - power_entity_id: "input_number.wc_pwm_trv_power"
+              valve_entity_id: "number.wc_trv_valve_position"
+          # Calculated valve positions for each zone based on the current power level and cycle time
+          positions: >
+            {% set now_ts = now().timestamp() %}
+            {% set zone_count = zones | length %}
+
+            {% set ns = namespace(result=[]) %}
+            {% for z in zones %}
+              {% set p = states(z.power_entity_id) | float(0) %}
+              {% set on_sec = (p / 100.0) * cycle_sec %}
+              {% set start_offset = loop.index0 * (cycle_sec / zone_count) %}
+              
+              {% set cycle_time = (now_ts - start_offset) % cycle_sec %}
+
+              {% if p <= 0 %}
+                {% set target_val = valve_min %}
+              {% elif p >= 100 %}
+                {% set target_val = valve_max %}
+              {% elif cycle_time < on_sec %}
+                {% set target_val = valve_max %}
+              {% else %}
+                {% set target_val = valve_min %}
+              {% endif %}
+
+              {% set ns.result = ns.result + [{
+                'valve_entity_id': z.valve_entity_id,
+                'current_position': states(z.valve_entity_id) | float(valve_min),
+                'target_position': target_val
+              }] %}
+            {% endfor %}
+            {{ ns.result }}
+      - repeat:
+          for_each: '{{ positions }}'
+          sequence:
+            # Only send a command if the valve posision needs a change to save TRV batteries;
+            # Valve values read from the device are not precisely the same as set, so adding some tolerance
+            - condition: template
+              value_template: '{{ (repeat.item.current_position - repeat.item.target_position) | abs > 2.0 }}'
+            - action: number.set_value
+              target:
+                entity_id: '{{ repeat.item.valve_entity_id }}'
+              data:
+                value: '{{ repeat.item.target_position }}'
