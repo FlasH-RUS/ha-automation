@@ -1,3 +1,63 @@
+# Abstracting the valve to a simple on/off switch as intermediate valve values don't make any sense for UFH.
+template:
+  - switch:
+      - name: "UFH valve switch base"
+        unique_id: 9ca7b66b-4e18-4b79-a64e-9c14d8a55e7b
+        attributes:
+          valve_entity_id: none
+          closed_position: 0
+          open_position: 100
+        <<: &ufh-valve-switch-definition
+          icon: mdi:valve
+          state: >
+            {# There seems to be a race condition between attributes and state initialization -- make sure absent attributes are handled gracefully #}
+            {% set safe_closed_pos = (this.attributes.closed_position | default(0)) | int %}
+            {% set safe_valve_entity_id = this.attributes.valve_entity_id | default('missing_attribute_entity') %}
+            {# Valve readings are rarely whole numbers -- leaving 1% tolerance #}
+            {% set unclosed_pos = safe_closed_pos + 1 %}
+            {% set actual_pos = states(safe_valve_entity_id) | float(0) %}
+            {{ actual_pos > unclosed_pos }}
+          turn_on:
+            - service: number.set_value
+              target:
+                entity_id: '{{ this.attributes.valve_entity_id }}'
+              data:
+                value: '{{ this.attributes.open_position }}'
+          turn_off:
+            - service: number.set_value
+              target:
+                entity_id: '{{ this.attributes.valve_entity_id }}'
+              data:
+                value: '{{ this.attributes.closed_position }}'
+      - name: "Ankleide UFH valve switch"
+        unique_id: 7c23ed5b-96b1-4b29-a3fa-0e8f09672544
+        attributes:
+          valve_entity_id: number.ankleide_trv_valve_position
+          closed_position: 5
+          open_position: 30
+        <<: *ufh-valve-switch-definition
+      - name: "Kuche UFH valve switch"
+        unique_id: a45acb0e-1679-4429-8db0-f9b996063d28
+        attributes:
+          valve_entity_id: number.kuche_trv_valve_position
+          closed_position: 5
+          open_position: 30
+        <<: *ufh-valve-switch-definition
+      - name: "WC UFH valve switch"
+        unique_id: d46868a2-9805-44f7-9d6d-f8512a2a15a5
+        attributes:
+          valve_entity_id: number.wc_trv_valve_position
+          closed_position: 5
+          open_position: 30
+        <<: *ufh-valve-switch-definition
+      - name: "Wintergarten UFH valve switch"
+        unique_id: 65039474-96f0-4418-9ac5-a5603bf485d2
+        attributes:
+          valve_entity_id: number.wintergarten_trv_valve_position
+          closed_position: 0
+          open_position: 40
+        <<: *ufh-valve-switch-definition
+
 script:
   set_pwm_trv_power_logic:
     alias: "Logic to set power for a PWM TRV"
@@ -156,11 +216,11 @@ automation:
           # Zones covered by this automation
           zones:
             - power_entity_id: "input_number.ankleide_pwm_trv_power"
-              valve_entity_id: "number.ankleide_trv_valve_position"
+              valve_switch_id: "switch.ankleide_ufh_valve_switch"
             - power_entity_id: "input_number.kuche_pwm_trv_power"
-              valve_entity_id: "number.kuche_trv_valve_position"
+              valve_switch_id: "switch.kuche_ufh_valve_switch"
             - power_entity_id: "input_number.wc_pwm_trv_power"
-              valve_entity_id: "number.wc_trv_valve_position"
+              valve_switch_id: "switch.wc_ufh_valve_switch"
           # Calculated valve positions for each zone based on the current power level and cycle time
           positions: >
             {% set now_ts = now().timestamp() %}
@@ -175,53 +235,30 @@ automation:
               {% set cycle_time = (now_ts - start_offset) % cycle_sec %}
 
               {% if p <= 0 %}
-                {% set target_val = valve_min %}
+                {% set target_on = false %}
               {% elif p >= 100 %}
-                {% set target_val = valve_max %}
+                {% set target_on = true %}
               {% elif cycle_time < on_sec %}
-                {% set target_val = valve_max %}
+                {% set target_on = true %}
               {% else %}
-                {% set target_val = valve_min %}
+                {% set target_on = false %}
               {% endif %}
 
               {% set ns.result = ns.result + [{
-                'valve_entity_id': z.valve_entity_id,
-                'current_position': states(z.valve_entity_id) | float(valve_min),
-                'target_position': target_val
+                'valve_switch_id': z.valve_switch_id,
+                'current_state': states(z.valve_switch_id),
+                'target_on': target_on
               }] %}
             {% endfor %}
             {{ ns.result }}
       - repeat:
           for_each: '{{ positions }}'
           sequence:
-            # Only send a command if the valve posision needs a change to save TRV batteries;
-            # Valve values read from the device are not precisely the same as set, so adding some tolerance
+            # Only send a command if the switch state actually needs to change
             - condition: template
-              value_template: '{{ (repeat.item.current_position - repeat.item.target_position) | abs > 2.0 }}'
-            - action: number.set_value
+              value_template: >
+                {% set current_is_on = repeat.item.current_state == 'on' %}
+                {{ current_is_on != repeat.item.target_on }}
+            - action: "{{ 'switch.turn_on' if repeat.item.target_on else 'switch.turn_off' }}"
               target:
-                entity_id: '{{ repeat.item.valve_entity_id }}'
-              data:
-                value: '{{ repeat.item.target_position }}'
-
-template:
-  # Abstracting the valve to a simple on/off switch as intermediate valve values don't make any sense to Wintergarten.
-  - switch:
-      - name: "Wintergarten valve switch"
-        unique_id: 65039474-96f0-4418-9ac5-a5603bf485d2
-        icon: mdi:valve
-        state: >
-          {# Valve readings are rarely whole numbers -- leaving 1% tolerance  #}
-          {{ states('number.wintergarten_trv_valve_position') | float(0) >= 39 }}
-        turn_on:
-          - service: number.set_value
-            target:
-              entity_id: number.wintergarten_trv_valve_position
-            data:
-              value: 40
-        turn_off:
-          - service: number.set_value
-            target:
-              entity_id: number.wintergarten_trv_valve_position
-            data:
-              value: 0
+                entity_id: '{{ repeat.item.valve_switch_id }}'
