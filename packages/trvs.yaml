@@ -203,3 +203,25 @@ automation:
                 entity_id: '{{ repeat.item.valve_entity_id }}'
               data:
                 value: '{{ repeat.item.target_position }}'
+
+template:
+  # Abstracting the valve to a simple on/off switch as intermediate valve values don't make any sense to Wintergarten.
+  - switch:
+      - name: "Wintergarten valve switch"
+        unique_id: 65039474-96f0-4418-9ac5-a5603bf485d2
+        icon: mdi:valve
+        state: >
+          {# Valve readings are rarely whole numbers -- leaving 1% tolerance  #}
+          {{ states('number.wintergarten_trv_valve_position') | float(0) >= 39 }}
+        turn_on:
+          - service: number.set_value
+            target:
+              entity_id: number.wintergarten_trv_valve_position
+            data:
+              value: 40
+        turn_off:
+          - service: number.set_value
+            target:
+              entity_id: number.wintergarten_trv_valve_position
+            data:
+              value: 0
