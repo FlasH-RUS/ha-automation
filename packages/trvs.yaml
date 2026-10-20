@@ -1,7 +1,7 @@
 # Abstracting the valve to a simple on/off switch as intermediate valve values don't make any sense for UFH.
 template:
   - switch:
-      - name: "UFH valve switch base"
+      - name: "Base UFH valve switch"
         unique_id: 9ca7b66b-4e18-4b79-a64e-9c14d8a55e7b
         attributes:
           valve_entity_id: none
@@ -83,28 +83,25 @@ script:
             {% endif %}
 
 input_number:
+  base_pwm_trv_power:
+    name: "Base PWM TRV power"
+    <<: &pwm-trv-power-definition
+      min: 0
+      max: 100
+      step: 5
+      unit_of_measurement: "%"
+      mode: slider
   ankleide_pwm_trv_power:
     name: "Ankleide PWM TRV power"
-    min: 0
-    max: 100
-    step: 5
-    unit_of_measurement: "%"
-    mode: slider
+    <<: *pwm-trv-power-definition
   kuche_pwm_trv_power:
     name: "Kuche PWM TRV power"
-    min: 0
-    max: 100
-    step: 5
-    unit_of_measurement: "%"
-    mode: slider
+    <<: *pwm-trv-power-definition
   wc_pwm_trv_power:
     name: "WC PWM TRV power"
-    min: 0
-    max: 100
-    step: 5
-    unit_of_measurement: "%"
-    mode: slider
+    <<: *pwm-trv-power-definition
 
+# TODO: v2026.10 has native climate templates: https://www.home-assistant.io/blog/2026/10/07/release-202610/; replace these with it
 climate:
   - platform: climate_template
     name: Ankleide PWM TRV
