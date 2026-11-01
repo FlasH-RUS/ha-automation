@@ -142,15 +142,33 @@ homeassistant:
   packages: !include_dir_named packages
 ```
 
-### Development
+## TRVs
 
-Deployment script is available at `deploy.sh`. It:
+Location: `packages/trvs.yaml`.
+
+The package adds:
+
+1. A binary switch controlling TRVs valve in it's effective range.
+1. A number representing this TRV power (as a fraction fo time in a period the valve is fully open).
+1. A template TRV with only 3 presets to control thermostat-less TRVs manually.
+1. An automation to implement the Pulse-Width Modulation logic.
+
+Wintergarten TRV only uses #1; other TRVs -- all the remaining items.
+
+## Dashboards
+
+I keep my custom dashboards UI-configured, so YNAB files here are mostly a backup/example.  
+See comments in YNAB files for dashboard dependencies and other notes.
+
+## Development
+
+Packages (but not dashboards!) can be deployed stright to Home Assistant using the `deploy.sh`. It:
 
 - Uploads YAML files that are consumed as is by your HA to the machine running it.
 - Triggers YAML validation on the machine.
 - Triggers YAML files reload on the machine.
 
-#### Prerequisites
+### Prerequisites
 
 1. You should be able to log into the machine without a password. Make sure to run `ssh-copy-id user@$MACHINE_IP` before
    you start using the script.
@@ -205,8 +223,3 @@ Deployment script is available at `deploy.sh`. It:
    }
 
    ```
-
-## Dashboards
-
-I keep my custom dashboards UI-configured, so YNAB files here are mostly a backup/example.  
-See comments in YNAB files for dashboard dependencies and other notes.
