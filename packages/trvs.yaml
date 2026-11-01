@@ -1,3 +1,46 @@
+script:
+  set_pwm_trv_power_logic:
+    alias: "Logic to set power for a PWM TRV"
+    fields:
+      power_number:
+        description: "ID of the number to set power level to"
+      climate_entity:
+        description: "ID of the climate template entity to translate to power"
+      hvac_mode:
+        description: "HVAC mode; only 'off' and 'heat' are supported"
+      preset_mode:
+        description: "Preset mode; only 'eco', 'comfort', and 'boost' are supported"
+    sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: '{{ power_number }}'
+        data:
+          value: >
+            {% if hvac_mode == 'off' %}
+              0
+            {% else %}
+              {{ {'eco': 33, 'comfort': 66, 'boost': 100}.get(preset_mode, 33) }}
+            {% endif %}
+
+input_number:
+  base_pwm_trv_power:
+    name: "Base PWM TRV power"
+    <<: &pwm-trv-power-definition
+      min: 0
+      max: 100
+      step: 5
+      unit_of_measurement: "%"
+      mode: slider
+  ankleide_pwm_trv_power:
+    name: "Ankleide PWM TRV power"
+    <<: *pwm-trv-power-definition
+  kuche_pwm_trv_power:
+    name: "Kuche PWM TRV power"
+    <<: *pwm-trv-power-definition
+  wc_pwm_trv_power:
+    name: "WC PWM TRV power"
+    <<: *pwm-trv-power-definition
+
 # Abstracting the valve to a simple on/off switch as intermediate valve values don't make any sense for UFH.
 template:
   - switch:
@@ -57,142 +100,81 @@ template:
           closed_position: 0
           open_position: 40
         <<: *ufh-valve-switch-definition
-
-script:
-  set_pwm_trv_power_logic:
-    alias: "Logic to set power for a PWM TRV"
-    fields:
-      power_number:
-        description: "ID of the number to set power level to"
-      climate_entity:
-        description: "ID of the climate template entity to translate to power"
-      hvac_mode:
-        description: "HVAC mode; only 'off' and 'heat' are supported"
-      preset_mode:
-        description: "Preset mode; only 'eco', 'comfort', and 'boost' are supported"
-    sequence:
-      - action: input_number.set_value
-        target:
-          entity_id: '{{ power_number }}'
-        data:
-          value: >
-            {% if hvac_mode == 'off' %}
-              0
-            {% else %}
-              {{ {'eco': 33, 'comfort': 66, 'boost': 100}.get(preset_mode, 33) }}
-            {% endif %}
-
-input_number:
-  base_pwm_trv_power:
-    name: "Base PWM TRV power"
-    <<: &pwm-trv-power-definition
-      min: 0
-      max: 100
-      step: 5
-      unit_of_measurement: "%"
-      mode: slider
-  ankleide_pwm_trv_power:
-    name: "Ankleide PWM TRV power"
-    <<: *pwm-trv-power-definition
-  kuche_pwm_trv_power:
-    name: "Kuche PWM TRV power"
-    <<: *pwm-trv-power-definition
-  wc_pwm_trv_power:
-    name: "WC PWM TRV power"
-    <<: *pwm-trv-power-definition
-
-# TODO: v2026.10 has native climate templates: https://www.home-assistant.io/blog/2026/10/07/release-202610/; replace these with it
-climate:
-  - platform: climate_template
-    name: Ankleide PWM TRV
-    unique_id: 2f618cce-2818-42bd-aa60-09fd4c58e49c
-    modes:
-      - "off"
-      - "heat"
-    preset_modes:
-      - "eco"
-      - "comfort"
-      - "boost"
-    set_hvac_mode:
-      - action: script.turn_on
-        target:
-          entity_id: script.set_pwm_trv_power_logic
-        data:
-          variables:
-            power_number: input_number.ankleide_pwm_trv_power
-            climate_entity: '{{ this.entity_id }}'
-            hvac_mode: '{{ hvac_mode }}'
-            preset_mode: '{{ this.attributes.preset_mode | default(''eco'', true) }}'
-    set_preset_mode:
-      - action: script.turn_on
-        target:
-          entity_id: script.set_pwm_trv_power_logic
-        data:
-          variables:
-            power_number: input_number.ankleide_pwm_trv_power
-            climate_entity: '{{ this.entity_id }}'
-            hvac_mode: '{{ this.state }}'
-            preset_mode: '{{ preset_mode }}'
-  - platform: climate_template
-    name: Kuche PWM TRV
-    unique_id: d9fccd3b-6a6c-45df-81cf-c04af19b2436
-    modes:
-      - "off"
-      - "heat"
-    preset_modes:
-      - "eco"
-      - "comfort"
-      - "boost"
-    set_hvac_mode:
-      - action: script.turn_on
-        target:
-          entity_id: script.set_pwm_trv_power_logic
-        data:
-          variables:
-            power_number: input_number.kuche_pwm_trv_power
-            climate_entity: '{{ this.entity_id }}'
-            hvac_mode: '{{ hvac_mode }}'
-            preset_mode: '{{ this.attributes.preset_mode | default(''eco'', true) }}'
-    set_preset_mode:
-      - action: script.turn_on
-        target:
-          entity_id: script.set_pwm_trv_power_logic
-        data:
-          variables:
-            power_number: input_number.kuche_pwm_trv_power
-            climate_entity: '{{ this.entity_id }}'
-            hvac_mode: '{{ this.state }}'
-            preset_mode: '{{ preset_mode }}'
-  - platform: climate_template
-    name: WC PWM TRV
-    unique_id: e2f8f665-742a-4a85-bfdd-33a818dc6890
-    modes:
-      - "off"
-      - "heat"
-    preset_modes:
-      - "eco"
-      - "comfort"
-      - "boost"
-    set_hvac_mode:
-      - action: script.turn_on
-        target:
-          entity_id: script.set_pwm_trv_power_logic
-        data:
-          variables:
-            power_number: input_number.wc_pwm_trv_power
-            climate_entity: '{{ this.entity_id }}'
-            hvac_mode: '{{ hvac_mode }}'
-            preset_mode: '{{ this.attributes.preset_mode | default(''eco'', true) }}'
-    set_preset_mode:
-      - action: script.turn_on
-        target:
-          entity_id: script.set_pwm_trv_power_logic
-        data:
-          variables:
-            power_number: input_number.wc_pwm_trv_power
-            climate_entity: '{{ this.entity_id }}'
-            hvac_mode: '{{ this.state }}'
-            preset_mode: '{{ preset_mode }}'
+  # PWM TRVs
+  # FIXME: get YAML anchors to work; using attributes in "power_number" below got me "Template rendered invalid entity IDs" on the first attempt
+  - climate:
+      - name: Ankleide PWM TRV
+        unique_id: 2f618cce-2818-42bd-aa60-09fd4c58e49c
+        hvac_modes: "{{ ['off', 'heat'] }}"
+        preset_modes: "{{ ['eco', 'comfort', 'boost'] }}"
+        set_hvac_mode:
+          - action: script.turn_on
+            target:
+              entity_id: script.set_pwm_trv_power_logic
+            data:
+              variables:
+                power_number: input_number.ankleide_pwm_trv_power
+                climate_entity: '{{ this.entity_id }}'
+                hvac_mode: '{{ hvac_mode }}'
+                preset_mode: '{{ this.attributes.preset_mode | default(''eco'', true) }}'
+        set_preset_mode:
+          - action: script.turn_on
+            target:
+              entity_id: script.set_pwm_trv_power_logic
+            data:
+              variables:
+                power_number: input_number.ankleide_pwm_trv_power
+                climate_entity: '{{ this.entity_id }}'
+                hvac_mode: '{{ this.state }}'
+                preset_mode: '{{ preset_mode }}'
+      - name: Kuche PWM TRV
+        unique_id: d9fccd3b-6a6c-45df-81cf-c04af19b2436
+        hvac_modes: "{{ ['off', 'heat'] }}"
+        preset_modes: "{{ ['eco', 'comfort', 'boost'] }}"
+        set_hvac_mode:
+          - action: script.turn_on
+            target:
+              entity_id: script.set_pwm_trv_power_logic
+            data:
+              variables:
+                power_number: input_number.kuche_pwm_trv_power
+                climate_entity: '{{ this.entity_id }}'
+                hvac_mode: '{{ hvac_mode }}'
+                preset_mode: '{{ this.attributes.preset_mode | default(''eco'', true) }}'
+        set_preset_mode:
+          - action: script.turn_on
+            target:
+              entity_id: script.set_pwm_trv_power_logic
+            data:
+              variables:
+                power_number: input_number.kuche_pwm_trv_power
+                climate_entity: '{{ this.entity_id }}'
+                hvac_mode: '{{ this.state }}'
+                preset_mode: '{{ preset_mode }}'
+      - name: WC PWM TRV
+        unique_id: e2f8f665-742a-4a85-bfdd-33a818dc6890
+        hvac_modes: "{{ ['off', 'heat'] }}"
+        preset_modes: "{{ ['eco', 'comfort', 'boost'] }}"
+        set_hvac_mode:
+          - action: script.turn_on
+            target:
+              entity_id: script.set_pwm_trv_power_logic
+            data:
+              variables:
+                power_number: input_number.wc_pwm_trv_power
+                climate_entity: '{{ this.entity_id }}'
+                hvac_mode: '{{ hvac_mode }}'
+                preset_mode: '{{ this.attributes.preset_mode | default(''eco'', true) }}'
+        set_preset_mode:
+          - action: script.turn_on
+            target:
+              entity_id: script.set_pwm_trv_power_logic
+            data:
+              variables:
+                power_number: input_number.wc_pwm_trv_power
+                climate_entity: '{{ this.entity_id }}'
+                hvac_mode: '{{ this.state }}'
+                preset_mode: '{{ preset_mode }}'
 
 automation:
   - alias: "UFH stateless PWM engine"
