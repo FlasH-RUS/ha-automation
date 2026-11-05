@@ -77,21 +77,21 @@ template:
         attributes:
           valve_entity_id: number.ankleide_trv_valve_position
           closed_position: 5
-          open_position: 30
+          open_position: 40
         <<: *ufh-valve-switch-definition
       - name: "Kuche UFH valve switch"
         unique_id: a45acb0e-1679-4429-8db0-f9b996063d28
         attributes:
           valve_entity_id: number.kuche_trv_valve_position
           closed_position: 5
-          open_position: 30
+          open_position: 40
         <<: *ufh-valve-switch-definition
       - name: "WC UFH valve switch"
         unique_id: d46868a2-9805-44f7-9d6d-f8512a2a15a5
         attributes:
           valve_entity_id: number.wc_trv_valve_position
           closed_position: 5
-          open_position: 30
+          open_position: 40
         <<: *ufh-valve-switch-definition
       - name: "Wintergarten UFH valve switch"
         unique_id: 65039474-96f0-4418-9ac5-a5603bf485d2
