@@ -219,7 +219,7 @@ template:
           {% set sun_over_terrace = is_state('binary_sensor.sunlit_terrace', 'on') %}
           {% set no_calendar_blocks = is_state('calendar.markise', 'off') %}
 
-          {% set temp_high_enough = states('sensor.temperature_sliding_window') | float > 10 %}
+          {% set temp_high_enough = states('sensor.temperature_sliding_window') | float > 12 %}
           {% set sunny_enough = states('sensor.sunshine_sliding_window') | float > 1 %}
           {% set some_time_after_rain = states('sensor.precipitation_sliding_window') | float == 0 %}
 
